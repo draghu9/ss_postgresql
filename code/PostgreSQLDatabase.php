@@ -167,6 +167,9 @@ class PostgreSQLDatabase extends SS_Database {
 		$this->active=true;
 		$this->database = $dbName;
 
+        //Postgres 9 only - specify the format of the returned bytea data
+        $this->query('set bytea_output = escape;');
+
 		// Set up the schema if required
  		$schema = isset($parameters['schema']) ? $parameters['schema'] : $this->currentSchema();
  		// Edge-case - database with no schemas:
@@ -613,7 +616,7 @@ class PostgreSQLDatabase extends SS_Database {
 
 		if($alteredOptions && isset($this->class) && isset($alteredOptions[$this->class])) {
 			$this->query(sprintf("ALTER TABLE \"%s\" %s", $tableName, $alteredOptions[$this->class]));
-			Database::alteration_message(
+			DB::alteration_message(
 				sprintf("Table %s options changed: %s", $tableName, $alteredOptions[$this->class]),
 				"changed"
 			);
@@ -746,9 +749,11 @@ class PostgreSQLDatabase extends SS_Database {
 	 */
 	public function checkAndRepairTable($tableName) {
 
-		$this->runTableCheckCommand("VACUUM FULL ANALYZE \"$tableName\"");
+		//TEMP - DO NOT COMMIT
+		/*$this->runTableCheckCommand("VACUUM FULL ANALYZE \"$tableName\"");
 		$this->runTableCheckCommand("REINDEX TABLE \"$tableName\"");
-		return true;
+		return true;*/
+        //TEMP - DO NOT COMMIT
 	}
 
 	/**
@@ -927,7 +932,16 @@ class PostgreSQLDatabase extends SS_Database {
 				//Here we create a db-specific version of whatever index we need to create.
 				switch($indexSpec['type']){
 					case 'fulltext':
-						$indexSpec='fulltext (' . $indexSpec['value'] . ')';
+                        //FASTER DEV BUILD (/FIX)
+                        //This is broken - creates a flip flop of creating and destroying the full text index
+                        //the only caveat with disabling this is that if new fields get added to the fulltext index in code,
+                        //they won't get added automatically - this should be done by dropping the fulltext index and dev/building
+
+                        //We need to include the fields so if we change the columns it's indexing, but not the name,
+                        //then the change will be picked up.
+                        //$indexSpec='(' . $indexSpec['name'] . ',' . $indexSpec['value'] . ')';
+
+                        $indexSpec='(ts_' . $indexSpec['name'] . ')';
 						break;
 					case 'unique':
 						$indexSpec='unique (' . $indexSpec['value'] . ')';
@@ -938,8 +952,14 @@ class PostgreSQLDatabase extends SS_Database {
 					case 'index':
 						//The default index is 'btree', which we'll use by default (below):
 					default:
-						$indexSpec='using btree (' . $indexSpec['value'] . ')';
-						break;
+                    //FASTER DEV BUILD FIX:
+                    //Old comment: The default index is 'btree', which we'll use by default (below):
+                    //UPDATE - this means the indexes are changed for EVERY dev build, which is wrong
+                    //changed to "(value)"
+                    //if (Util::param("legacy") == null) {
+                        $indexSpec='(' . $indexSpec['value'] . ')';
+                        break;
+                    //}
 				}
 			}
 		} else {
@@ -995,8 +1015,8 @@ class PostgreSQLDatabase extends SS_Database {
 		// check array spec
 		if(is_array($spec) && isset($spec['type'])) {
 			return $spec['type'];
-		} elseif (!is_array($spec) && preg_match('/(?<type>\w+)\s*\(/', $spec, $matchType)) {
-			return strtolower($matchType['type']);
+		} elseif (!is_array($spec) && preg_match('/(\w+)\s*\(/', $spec, $matchType)) {
+			return strtolower($matchType[1]);
 		} else {
 			return 'index';
 		}
@@ -1095,7 +1115,7 @@ class PostgreSQLDatabase extends SS_Database {
 	 * @param string $indexSpec The specification of the index, see Database::requireIndex() for more details.
 	 */
 	public function alterIndex($tableName, $indexName, $indexSpec) {
-	    $indexSpec = trim($indexSpec);
+        $indexSpec = trim($indexSpec);
 	    if($indexSpec[0] != '(') {
 	    	list($indexType, $indexFields) = explode(' ',$indexSpec,2);
 	    } else {
@@ -1106,8 +1126,10 @@ class PostgreSQLDatabase extends SS_Database {
 	    	$indexType = "index";
 	    }
 
-		$this->query("DROP INDEX \"$indexName\"");
-		$this->query("ALTER TABLE \"$tableName\" ADD $indexType \"$indexName\" $indexFields");
+        //TEMP - DO NOT COMMIT
+		//$this->query("DROP INDEX \"$indexName\"");
+		//$this->query("ALTER TABLE \"$tableName\" ADD $indexType \"$indexName\" $indexFields");
+        //TEMP - DO NOT COMMIT
 	}
 	
 	/**
@@ -1540,6 +1562,23 @@ class PostgreSQLDatabase extends SS_Database {
 		else
 			return "text{$values['arrayValue']}";
 	}
+
+    /**
+     * Return a text type-formatted string
+     *
+     * @params array $values Contains a tokenised list of info about this data type
+     * @return string
+     */
+    public function bytea($values, $asDbValue=false){
+
+        if(!isset($values['arrayValue']))
+            $values['arrayValue']='';
+
+        if($asDbValue)
+            return Array('data_type'=>'bytea');
+        else
+            return "bytea{$values['arrayValue']}";
+    }
 
 	/**
 	 * Return a time type-formatted string
