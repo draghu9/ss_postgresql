@@ -748,12 +748,14 @@ class PostgreSQLDatabase extends SS_Database {
 	 * @return boolean Return true if the table has integrity after the method is complete.
 	 */
 	public function checkAndRepairTable($tableName) {
-
-		//TEMP - DO NOT COMMIT
-		/*$this->runTableCheckCommand("VACUUM FULL ANALYZE \"$tableName\"");
+		//FASTER DEV BUILD FIX:
+        //These run extremely slow on large tables (as it states above), which makes dev/build very slow
+        //These should now be run on a regular cron job on prod
+        if (Util::param("legacy") != null) {
+			$this->runTableCheckCommand("VACUUM FULL ANALYZE \"$tableName\"");
 		$this->runTableCheckCommand("REINDEX TABLE \"$tableName\"");
-		return true;*/
-        //TEMP - DO NOT COMMIT
+        }
+		return true;
 	}
 
 	/**
@@ -822,7 +824,11 @@ class PostgreSQLDatabase extends SS_Database {
 							//TODO: replace all this with a regular expression!
 							$value=$constraint['pg_get_constraintdef'];
 							$value=substr($value, strpos($value,'='));
+						//FIX FOR NO DEFAULT CONSTRAINT - since this renders as '', it matches this str_replace wich
+		                //means the following char manip fails
+		                if (Util::param("legacy") != null) {
 							$value=str_replace("''", "'", $value);
+		                }
 
 							$in_value=false;
 							$constraints=Array();
@@ -950,16 +956,17 @@ class PostgreSQLDatabase extends SS_Database {
 						$indexSpec='using hash (' . $indexSpec['value'] . ')';
 						break;
 					case 'index':
-						//The default index is 'btree', which we'll use by default (below):
-					default:
                     //FASTER DEV BUILD FIX:
                     //Old comment: The default index is 'btree', which we'll use by default (below):
                     //UPDATE - this means the indexes are changed for EVERY dev build, which is wrong
                     //changed to "(value)"
-                    //if (Util::param("legacy") == null) {
+						if (Util::param("legacy") == null) {
                         $indexSpec='(' . $indexSpec['value'] . ')';
                         break;
-                    //}
+						}
+					default:
+						$indexSpec='using btree (' . $indexSpec['value'] . ')';
+						break;
 				}
 			}
 		} else {
