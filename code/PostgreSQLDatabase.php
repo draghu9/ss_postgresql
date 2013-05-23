@@ -938,19 +938,20 @@ class PostgreSQLDatabase extends SS_Database {
 				//Here we create a db-specific version of whatever index we need to create.
 				switch($indexSpec['type']){
 					case 'fulltext':
-                        //FASTER DEV BUILD (/FIX)
-                        //This is broken - creates a flip flop of creating and destroying the full text index
-                        //the only caveat with disabling this is that if new fields get added to the fulltext index in code,
-                        //they won't get added automatically - this should be done by dropping the fulltext index and dev/building
-
-                        //We need to include the fields so if we change the columns it's indexing, but not the name,
-                        //then the change will be picked up.
-                        //$indexSpec='(' . $indexSpec['name'] . ',' . $indexSpec['value'] . ')';
-
-                        $indexSpec='(ts_' . $indexSpec['name'] . ')';
-						break;
+                        $indexSpec='fulltext (' . $indexSpec['value'] . ')';
+                        break;
 					case 'unique':
-						$indexSpec='unique (' . $indexSpec['value'] . ')';
+
+                        //FASTER DEV BUILD (/FIX)
+                        //Seems that quotes are put around mutiple values only - need to be put around single values that don't have any
+                        if (strpos($indexSpec['value'], '"') === false) {
+                            $indexValue = '"' . $indexSpec['value'] . '"';
+                        } else {
+                            $indexValue = $indexSpec['value'];
+                        }
+
+						$indexSpec='unique (' . $indexValue . ')';
+
 						break;
 					case 'hash':
 						$indexSpec='using hash (' . $indexSpec['value'] . ')';
@@ -961,7 +962,7 @@ class PostgreSQLDatabase extends SS_Database {
                     //UPDATE - this means the indexes are changed for EVERY dev build, which is wrong
                     //changed to "(value)"
 						if (Util::param("legacy") == null) {
-                        $indexSpec='(' . $indexSpec['value'] . ')';
+                            $indexSpec='("' . $indexSpec['value'] . '")';
                         break;
 						}
 					default:
@@ -1482,6 +1483,10 @@ class PostgreSQLDatabase extends SS_Database {
 			$default='';
 		else
 			$default=" default '{$values['default']}'";
+
+        //FASTER DEV BUILD (/FIX)
+        //DB seems be return random order (?) which means this check keeps getting redone. Sort to ensure this doesn't happen.
+        sort($values['enums']);
 
 		return "varchar(255){$values['arrayValue']}" . $default . " check (\"" . $values['name'] . "\" in ('" . implode('\', \'', $values['enums']) . "'))";
 
